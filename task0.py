@@ -166,7 +166,7 @@ def control_loop(c):
     ki = 0.0
     kd = 0.0
 
-    dt = 1.5
+    dt = 0.2
     base_speed = 2.0
 
     integral = 0.0
