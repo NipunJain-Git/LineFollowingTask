@@ -47,17 +47,17 @@ def control_loop(sensors):
         sensors['right_corner']
     ]
 
-    weighted_sum = 0
-    sensor_sum = 0
+    wsum = 0.0
+    ssum = 0.0
     
     for i in range(5):
-    weighted_sum += values[i] * pos[i]
-    sensor_sum += values[i]
+        wsum += values[i] * pos[i]
+        ssum += values[i]
 
-    if sensor_sum == 0 or sensor_sum==5:
+    if ssum == 0 or ssum==5:
         return base_speed, base_speed
 
-    error = weighted_sum / sensor_sum
+    error = wsum / ssum
 
     Kp = 1.5
     Ki = 0
