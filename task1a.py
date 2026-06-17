@@ -27,15 +27,17 @@ from connector_task1a import CoppeliaClient
 # Each value is in [0.0, 1.0]; a higher value means the line is detected.
 SENSOR_ORDER = ['left_corner', 'left', 'middle', 'right', 'right_corner']
 
-
 integral = 0
 previous_error = 0
+last_error = 0
+black_mode = False
 
 def control_loop(sensors):
 
-    global integral, previous_error
-
-    base_speed = 2.0
+    global integral
+    global previous_error
+    global last_error
+    global black_mode
 
     pos = [-2, -1, 0, 1, 2]
 
@@ -47,21 +49,34 @@ def control_loop(sensors):
         sensors['right_corner']
     ]
 
+    if not black_mode and sum(values) > 3.5:
+        black_mode = True
+
+    
+    if not black_mode:
+        base_speed = 2.0
+        Kp = 1.5
+
+    
+    else:
+        base_speed = 1.5
+        Kp = 2.5
+
+        values = [1.0 - v for v in values]
+
     wsum = 0.0
     ssum = 0.0
-    
+
     for i in range(5):
         wsum += values[i] * pos[i]
         ssum += values[i]
 
-    if ssum == 0 or ssum==5:
-        return base_speed, base_speed
-
+    
     error = wsum / ssum
-
-    Kp = 1.5
-    Ki = 0
-    Kd = 0
+    last_error = error
+    
+    Ki = 0.0
+    Kd = 0.0
 
     integral += error
 
@@ -75,12 +90,11 @@ def control_loop(sensors):
 
     previous_error = error
 
-    left = base_speed + correction
-    right = base_speed - correction
+    left_speed = base_speed + correction
+    right_speed = base_speed - correction
 
-    return left, right
-
-
+    return left_speed, right_speed
+    
 def main():
     client = CoppeliaClient(host="127.0.0.1", port=50002)
     client.connect()
