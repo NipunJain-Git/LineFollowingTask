@@ -54,13 +54,13 @@ def control_loop(sensors):
 
     
     if not black_mode:
-        base_speed = 2.0
-        Kp = 1.5
+        base_speed = 4
+        Kp = 2.2
 
     
     else:
-        base_speed = 1.5
-        Kp = 2.5
+        base_speed = 3
+        Kp = 3.6
 
         values = [1.0 - v for v in values]
 
