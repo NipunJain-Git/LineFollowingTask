@@ -19,21 +19,22 @@ integral = 0
 previous_error = 0
 last_error = 0
 black_mode = False
-black_mode_counter = 0
 count = 1
+
+# Background transition globals
 last_state = 0
-last_base_speed = 7.5
-last_correction = 0.0
+current_state = 0
+
+# Checkpoint sequence globals
+cp_active = False
+cp_phase = 0
+cp_timer = 0
+checkpoint_index = 0
 
 def control_loop(sensors):
-    global integral
-    global previous_error
-    global last_error
-    global black_mode
-    global count  # Added to fix UnboundLocalError
+    global integral, previous_error, last_error, black_mode, count
     global last_state, current_state
-    global last_base_speed 
-    global last_correction 
+    global cp_active, cp_phase, cp_timer, checkpoint_index
 
     pos = [-2, -1, 0, 1, 2]
     values = [
@@ -44,76 +45,119 @@ def control_loop(sensors):
         sensors['right_corner']
     ]
     
-    if count <= 4:
-        max_speed = 7.5
-        count = count + 1
-        base_speed = max_speed
-        correction = 0.0
+    # Initial startup frames
+    if count <= 5:
+        count += 1
+        return 7.5, 6
 
-    else:
-        if sum(values) < 0.3:
-            base_speed=last_base_speed
-            correction=last_correction
-            pass
+    # -------------------------------------------------------------
+    # CHECKPOINT DETECTION (ALL BLACK DOT)
+    # -------------------------------------------------------------
+    # If we hit an all-black patch and are not already in a sequence
+    if not cp_active and sum(values) < 0.3:
+        cp_active = True
+        cp_phase = 1
+        cp_timer = 6  # FRAMES TO MOVE FORWARD (Tune this: 20 frames = ~1 sec)
+        checkpoint_index += 1
+
+    # Process the sequence if active
+    if cp_active:
+        if cp_phase == 1:
+            # Phase 1: Move forward a bit
+            cp_timer -= 1
+            if cp_timer <= 0:
+                cp_phase = 2
+                cp_timer = 12  # FRAMES TO TANK TURN (Tune this depending on angle needed)
+            return 5.0, 5.0    # Forward speed
         
-        else:
-            if sum(values) > 3.5:
-                current_state = 1  # White background
-                black_mode = True  # Keep your existing black_mode synced
-            elif sum(values) < 1.5:
-                current_state = 0  # Black background
-                black_mode = False # Keep your existing black_mode synced
+        elif cp_phase == 2:
+            # Phase 2: Tank turn based on which checkpoint this is
+            cp_timer -= 1
+            if cp_timer <= 0:
+                cp_active = False  # Sequence finished, resume normal line following
+                cp_phase = 0
+            
+            # SET YOUR BIASES / TURNS HERE! 
+            # Tank turn: One wheel positive, one negative
+            if checkpoint_index == 1:
+                # 1st Checkpoint: Tank turn Right
+                return 4.0, -4.0
+            elif checkpoint_index == 2:
+                # 2nd Checkpoint: Tank turn Left
+                return -4.0, 4.0
+            elif checkpoint_index == 3:
+                # 3rd Checkpoint: Tank turn Left
+                return -4.0, 4.0
+            elif checkpoint_index == 4:
+                # 4th Checkpoint: Tank turn Right
+                return 4.0, -4.0
             else:
-                current_state = last_state  # Keep stable if in between
+                # Default behavior for any subsequent checkpoints
+                return 4.0, -4.0
+    # -------------------------------------------------------------
 
-            if current_state != last_state:
-                last_state = current_state
-                time.sleep(0.005)  # Add 10ms delay
-                return 5.0, 5.0    # Move forward straight to cross the line safely
-            if not black_mode and sum(values) > 3.5:
-                black_mode = True
+    # -------------------------------------------------------------
+    # STATE TRANSITION LOGIC (Background Inversion)
+    # -------------------------------------------------------------
+    # 1. Determine the current state based on sensor sums
+    if sum(values) > 3.5:
+        current_state = 1  # White background
+        black_mode = True  
+    elif sum(values) < 1.5:
+        current_state = 0  # Black background
+        black_mode = False 
+    else:
+        current_state = last_state  
 
-            if not black_mode:
-                max_speed = 7.5
-                min_speed = 3.6
-                Kp = 2.7
-                Kd = 1.4
-            else:
-                max_speed = 5.9
-                min_speed = 2.8
-                Kp = 4.5
-                Kd = 1.6
-                values = [1.0 - v for v in values]
+    # 2. Check for transition between states
+    if current_state != last_state:
+        last_state = current_state
+        time.sleep(0.010)  # Add 10ms delay
+        return 5.0, 5.0    # Move forward straight to cross the line safely
+    # -------------------------------------------------------------
 
-            wsum = 0.0
-            ssum = 0.0
-            for i in range(5):
-                wsum += values[i] * pos[i]
-                ssum += values[i]
+    # -------------------------------------------------------------
+    # STANDARD PID LOGIC
+    # -------------------------------------------------------------
+    if not black_mode:
+        max_speed = 7.5
+        min_speed = 3.6
+        Kp = 2.7
+        Kd = 1.4
+    else:
+        max_speed = 5.9
+        min_speed = 2.8
+        Kp = 4.5
+        Kd = 1.6
+        values = [1.0 - v for v in values]
 
-            # Prevent division by zero if all sensors read 0
-            if ssum == 0:
-                error = last_error
-            else:
-                error = wsum / ssum
-                
-            last_error = error
+    wsum = 0.0
+    ssum = 0.0
+    for i in range(5):
+        wsum += values[i] * pos[i]
+        ssum += values[i]
 
-            Ki = 0.0
-            integral += error
-            derivative = error - previous_error
-            correction = (
-                Kp * error +
-                Ki * integral +
-                Kd * derivative
-            )
-            previous_error = error
+    # Prevent division by zero
+    if ssum == 0:
+        error = last_error
+    else:
+        error = wsum / ssum
+        
+    last_error = error
 
-            error_frac = min(abs(error) / 2.0, 1.0)
-            base_speed = max_speed - error_frac * (max_speed - min_speed)
-    
-    last_base_speed = base_speed
-    last_correction = correction
+    Ki = 0.0
+    integral += error
+    derivative = error - previous_error
+    correction = (
+        Kp * error +
+        Ki * integral +
+        Kd * derivative
+    )
+    previous_error = error
+
+    error_frac = min(abs(error) / 2.0, 1.0)
+    base_speed = max_speed - error_frac * (max_speed - min_speed)
+
     left_speed = base_speed + correction
     right_speed = base_speed - correction
     return left_speed, right_speed
